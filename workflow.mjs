@@ -148,83 +148,19 @@ export function apply(ctx, config) {
     'workflow-l1.section()'
   )
 
-  // ── 3. 注册 evolve_add 工具：只追加单条到 ledger（去重），不碰 workflow.md ──
-  // DSH 强制：动态工具必须用 harness.defineTool(...) 包装后再 register，
-  // 直接传对象会抛 "must use a tool returned by harness.defineTool(...)"。
-  // harness 不可用时跳过工具注册（段落已注册，不影响核心功能）。
-  const tools = ctx.tools
-  if (tools?.register && typeof harness !== 'undefined' && harness?.defineTool) {
-    ctx.effect(
-      () =>
-        tools.register(
-          harness.defineTool({
-            name: 'evolve_add',
-            description:
-              '向进化账本追加一条规则（条目级 delta）。只写 evolve/ledger.md，不碰 workflow.md。' +
-              '新增前会与已有条目去重，命中则 hits++ 不新增。',
-          parameters: {
-            type: 'object',
-            properties: {
-              scope: { type: 'string', description: '作用域：always 或 P0..P6' },
-              when: { type: 'string', description: '命中条件：什么时候该想起这条' },
-              text: { type: 'string', description: '规则正文（一句话，可执行）' },
-            },
-            required: ['scope', 'when', 'text'],
-          },
-          // DSH 硬性要求：工具必须声明 output（含 schema 与 render），否则挂载报错
-          // "must declare output { schema, render, presentationMeta? }"
-          output: {
-            schema: {
-              type: 'object',
-              properties: {
-                ok: { type: 'boolean' },
-                action: { type: 'string' },
-                id: { type: 'string' },
-                hits: { type: 'number' },
-                line: { type: 'string' },
-                reason: { type: 'string' },
-              },
-            },
-            render: (args, value) => [
-              { type: 'text', text: JSON.stringify(value, null, 1) },
-            ],
-          },
-          execute: async (args) => {
-            const cur = readText(ctx, ledgerUrl)
-            const lines = cur.split(/\r?\n/)
-            const { b, e } = findMarkers(lines, BEGIN, END)
-            if (b < 0 || e <= b) return { ok: false, reason: 'ledger 标记缺失' }
-            const existing = lines.slice(b + 1, e).map(parseEntry).filter(Boolean)
-            const next = { id: '', scope: args.scope, when: args.when, text: args.text, hits: 0 }
-            const dup = existing.find((x) => similar(x, next))
-            if (dup) {
-              // 命中：hits++ 并回写该行
-              const idx = lines.findIndex((l) => l === dup.raw)
-              if (idx >= 0) {
-                dup.hits += 1
-                lines[idx] =
-                  `- [${dup.id} | ${dup.scope} | ${dup.when}] ${dup.text}   ` +
-                  `(added: ${dup.added || new Date().toISOString().slice(0, 10)}, hits: ${dup.hits})`
-                writeText(ctx, ledgerUrl, lines.join('\n'))
-                return { ok: true, action: 'hits++', id: dup.id, hits: dup.hits }
-              }
-            }
-            const maxId = existing.reduce((m, x) => {
-              const n = parseInt(String(x.id).replace(/\D/g, ''), 10)
-              return Number.isFinite(n) && n > m ? n : m
-            }, 0)
-            const id = 'E' + String(maxId + 1).padStart(3, '0')
-            const date = new Date().toISOString().slice(0, 10)
-            const line = `- [${id} | ${args.scope} | ${args.when}] ${args.text}   (added: ${date}, hits: 0)`
-            lines.splice(e, 0, line)
-            writeText(ctx, ledgerUrl, lines.join('\n'))
-            return { ok: true, action: 'added', id, line }
-          },
-          })
-        ),
-      'workflow-l1.evolve_add()'
-    )
-  }
+  // ── 3. 【已移除】evolve_add 专属工具注册 ──
+  // 实测结论：预设插件（.mjs）里 ctx.tools.register 注册的工具不进入 agent 可见集。
+  //   证据：scoped 与 global 查询均为 14 个且完全一致，scoped-only 为空；
+  //   而动态插件用 harness.registerTool 注册的 preset_admin 可见。
+  //   原因：预设 scope 与 agent scope 层级不同 —— 预设注册的是"能力"，
+  //   动态插件才注册到 agent 会话工具表。官方工具走 dsh-tool-* npm 包
+  //   （可 import defineTool），但预设目录无 node_modules，不能 import 裸包名。
+  //
+  // 替代方案（已采用）：不注册专属工具，改为在 ledger 顶部写明
+  //   "要加规则就用 edit 工具向本文件 LEDGER:BEGIN/END 之间追加一行"。
+  //   模型本就有 edit/write 工具；去重改为人工保证。
+  //
+  // 保留并已实测生效：自动编译 + 版本号 + git 回滚。
 }
 
 /**
