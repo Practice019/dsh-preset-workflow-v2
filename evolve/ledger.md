@@ -48,6 +48,7 @@
 - [E005 | always | 设计/框架决策前] 方案调研：先查别人做过没有，有现成直接抄并注明出处。(added: 2026-09-17, hits: 0)
 - [E006 | always | 拿不准时] 有疑虑就问子代理，不限于技术选型；派发时给足背景，别让它自己读文件。(added: 2026-09-17, hits: 0)
 
+- [E007 | always | 被要求修改预设或工作流时] 先确认改的是 workflow-v2 目录，不动 workflow-cordis 与出厂 cordis   (added: 2026-09-19, hits: 1)
 <!-- LEDGER:END -->
 
 ---
