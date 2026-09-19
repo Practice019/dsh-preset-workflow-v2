@@ -295,3 +295,5 @@
 
 - id: present
   name: '@deepseek-ai/dsh-tool-present'
+
+# evolve: 触发新挂载世代（workflow.mjs 已改）
