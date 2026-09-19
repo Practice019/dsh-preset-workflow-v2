@@ -167,6 +167,24 @@ export function apply(ctx, config) {
             },
             required: ['scope', 'when', 'text'],
           },
+          // DSH 硬性要求：工具必须声明 output（含 schema 与 render），否则挂载报错
+          // "must declare output { schema, render, presentationMeta? }"
+          output: {
+            schema: {
+              type: 'object',
+              properties: {
+                ok: { type: 'boolean' },
+                action: { type: 'string' },
+                id: { type: 'string' },
+                hits: { type: 'number' },
+                line: { type: 'string' },
+                reason: { type: 'string' },
+              },
+            },
+            render: (args, value) => [
+              { type: 'text', text: JSON.stringify(value, null, 1) },
+            ],
+          },
           execute: async (args) => {
             const cur = readText(ctx, ledgerUrl)
             const lines = cur.split(/\r?\n/)
