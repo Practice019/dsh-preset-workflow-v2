@@ -148,16 +148,20 @@ export function apply(ctx, config) {
     'workflow-l1.section()'
   )
 
-  // ── 3. 注册 evolve.add 工具：只追加单条到 ledger（去重），不碰 workflow.md ──
+  // ── 3. 注册 evolve_add 工具：只追加单条到 ledger（去重），不碰 workflow.md ──
+  // DSH 强制：动态工具必须用 harness.defineTool(...) 包装后再 register，
+  // 直接传对象会抛 "must use a tool returned by harness.defineTool(...)"。
+  // harness 不可用时跳过工具注册（段落已注册，不影响核心功能）。
   const tools = ctx.tools
-  if (tools?.register) {
+  if (tools?.register && typeof harness !== 'undefined' && harness?.defineTool) {
     ctx.effect(
       () =>
-        tools.register({
-          name: 'evolve_add',
-          description:
-            '向进化账本追加一条规则（条目级 delta）。只写 evolve/ledger.md，不碰 workflow.md。' +
-            '新增前会与已有条目去重，命中则 hits++ 不新增。',
+        tools.register(
+          harness.defineTool({
+            name: 'evolve_add',
+            description:
+              '向进化账本追加一条规则（条目级 delta）。只写 evolve/ledger.md，不碰 workflow.md。' +
+              '新增前会与已有条目去重，命中则 hits++ 不新增。',
           parameters: {
             type: 'object',
             properties: {
@@ -216,7 +220,8 @@ export function apply(ctx, config) {
             writeText(ctx, ledgerUrl, lines.join('\n'))
             return { ok: true, action: 'added', id, line }
           },
-        }),
+          })
+        ),
       'workflow-l1.evolve_add()'
     )
   }
