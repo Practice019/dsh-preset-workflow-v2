@@ -297,3 +297,4 @@
   name: '@deepseek-ai/dsh-tool-present'
 
 # evolve: 触发新挂载世代（workflow.mjs 已改）
+# evolve: 2026-09-22 E009（project-handoff-memory）入 ledger —— 刷新本文件戳以重建世代
