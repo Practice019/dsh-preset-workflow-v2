@@ -138,9 +138,8 @@ npm test
 ## 归属
 
 MIT（见 `LICENSE`）。`preset.patch.yml` 由 DSH 出厂 `cordis` 预设派生，
-其中 persona、plan-mode 文本与插件行结构沿用上游内容，权利属上游；
-本仓库自建部分为 `workflow.md` 骨架、`workflow.mjs` 编译器、`evolve/` 账本与
-`skills/workflow-phases/`。
+其中 persona、plan-mode 文本与插件行结构沿用上游内容，**权利属上游**，不在 MIT 范围内；
+详见 [`NOTICE.md`](NOTICE.md)。
 
 ## 状态
 

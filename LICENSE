@@ -19,18 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-注意 / Notice
-
-本仓库中的 `preset.patch.yml` 由 DeepSeek Harness (DSH) 出厂 `cordis` 预设派生而来，
-其中 persona、plan-mode Kick-off 文本与插件行结构沿用上游内容；这些部分的权利属上游。
-本仓库以 MIT 发布的部分是作者自建的工作流层（`workflow.md` 骨架、`workflow.mjs` 编译器、
-`evolve/` 账本与 lessons、`skills/workflow-phases/`）。
-
-Portions of `preset.patch.yml` are derived from the DeepSeek Harness (DSH) shipped
-`cordis` preset; those portions remain subject to upstream terms. The MIT license
-above covers the author's own work: the L1 skeleton (`workflow.md`), the compiler
-(`workflow.mjs`), the ledger/lessons under `evolve/`, and the
-`skills/workflow-phases/` skill.
