@@ -96,6 +96,7 @@ evolve_add(scope, when, text)
 - [E016 | always | 修改 file: 依赖插件的源目录后] 必须同步复制到 node_modules 副本，并重启验证已生效   (added: 2026-10-15, hits: 0)
 - [E017 | always | 在预设配置里写 !!js 路径表达式时] 不要 new URL(rel, baseUrl)：预设行 baseUrl 不保证是绝对 URL，改用绝对路径   (added: 2026-10-15, hits: 0)
 - [E018 | always | 改 bundle patch 后] 本会话内不生效：必须重启 dsh 再开新会话验证   (added: 2026-10-15, hits: 0)
+- [E019 | always | git push 报 127.0.0.1 连不上时] git 走本机代理失败时改用 git -c http.proxy= -c https.proxy= push   (added: 2026-10-15, hits: 0)
 <!-- LEDGER:END -->
 
 ---
