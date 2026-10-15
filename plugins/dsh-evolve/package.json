@@ -1,0 +1,31 @@
+{
+  "name": "dsh-evolve",
+  "version": "1.0.0",
+  "description": "DSH 常驻插件：注册 evolve_add 工具，向 workflow-v2 预设的进化账本（evolve/ledger.md）条目级追加规则并自动去重，配合 workflow.mjs 的自动编译实现预设自我进化",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "plugin",
+    "cordis",
+    "evolve",
+    "ledger",
+    "workflow"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

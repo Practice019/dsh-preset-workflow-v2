@@ -1,0 +1,12 @@
+# dsh-evolve - DSH 常驻 Host 插件（bundle patch 层）
+#
+# DSH 启动时自动加载 lib/index.js，注册 evolve_add 工具。
+# 该工具向 workflow-v2 预设的进化账本（evolve/ledger.md）条目级追加规则并自动去重。
+# 与 workflow-v2 的 workflow.mjs（自动编译 ledger → L1）配合，实现预设自我进化。
+#
+# 注意：本插件只提供"写"的能力；"读+编译+生效"由 workflow-v2 预设内的 workflow.mjs 负责。
+# 若改了预设目录名（workflow-v2 → 别的），需同步改 lib/index.js 里的 LEDGER 路径。
+
+- insert:
+    - id: evolve
+      name: 'dsh-evolve'
