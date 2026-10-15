@@ -325,8 +325,21 @@
           - id: skill-filesystem
             name: '@deepseek-ai/dsh-skill-filesystem'
             config:
+              # ⚠️ 2026-10-15 实测修正：原来写的是
+              #     - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"
+              #   症状：workflow-phases 技能加载不到（skill 工具报 unknown or no longer
+              #   available），且**无任何报错**——因为 dsh-skill-filesystem 对「目录不存在」
+              #   返回空列表而非抛错（lib/index.js: isAbsentSkillPathError → []）。
+              #   原因：预设行的 baseUrl 由上层 Loader 树继承（Entry.ctx = ctx.extend({
+              #   baseUrl: ctx.baseUrl })），本部署下它不保证是绝对 URL；而 new URL(rel, base)
+              #   要求 base 是绝对 URL，否则抛 Invalid URL → 本行配置求值失败。
+              #   对照：出厂 cordis 预设同样位置用 createRequire(baseUrl)（路径/URL 都接受）
+              #   所以不受影响；且宿主层 dsh-base 另有 skill-filesystem 在供目录，用户根技能
+              #   照常可见，因此这个失效非常隐蔽。
+              #   改法：不依赖 baseUrl 的绝对路径（与上方 workflow-l1 行同一约定：
+              #   移动预设目录时必须同步改这一行）。
               customSkillDirs:
-                - !!js "process.getBuiltinModule('node:url').fileURLToPath(new URL('skills/', baseUrl))"
+                - 'C:\Users\21877\.dsh\presets\workflow-v2\skills'
 
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'
