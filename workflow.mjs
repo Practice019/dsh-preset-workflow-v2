@@ -6,7 +6,7 @@
  *     （七阶段 + 何时走哪个 + 铁律 + 资料获取方式）。必须自足。
  *  2. 【增量】读 evolve/ledger.md 的活跃条目 → 编译成规则列表，**追加**在骨架之后（不替代）
  *  3. 【注册】合并结果注册为 systemPrompt 的 `workflow:policy` 段（order 700，早于工具段 1000+）
- *  4. 【门禁】合并结果超 MAX_L1 字符则整体不注册（fail-closed）
+ *  4. 【软提醒】超 WARN_L1 字符、或单条正文超 MAX_ENTRY → 只写日志，**不阻止注册**
  *
  * 关键约束（违反即静默失效）：
  *  1. 段落名固定 `workflow:policy`，order=700。不用 persona 的 PERSONA_PREFIX_SECTION
@@ -15,7 +15,15 @@
  *     就是本次新世代的 layer，所以【本会话即最新】，无需再开第二次会话。
  *      （dsh-system-prompt/lib/index.js:238）
  *  3. 解析/读取失败必须 fail-closed：宁可段落缺失，也不能把整份文件塞进常驻区。
+ *     —— 这条**只针对解析失败**。**长度永不阻止注册**（见第 5 条）。
  *  4. .mjs 不能 import 裸包名（预设目录无 node_modules）→ 文件读写走 node:fs 内置模块。
+ *  5. 【无全局上限，2026-10-15 决策】取消原来的 MAX_L1=1500 硬门禁。
+ *     理由：长度本身不是错误，而「超一点就整段不注册」会把小毛病升级成
+ *     「整个工作流静默失效」——最坏的失败模式（已实测：账本 25 条时 2434/1500 → 全丢）。
+ *     约束改为放在**单条质量**上（贪心累积 + 每条压短）：
+ *       · 每条正文 ≤ MAX_ENTRY（超出只提醒；真正的拦截在写入端 dsh-evolve 的 evolve_add）；
+ *       · 超过 WARN_L1 时日志提醒「该把长条目下沉到 evolve/lessons/」。
+ *     代价：常驻段会随条目线性增长，人若不定期复查会稀释注意力——所以保留「软提醒 + git 可回滚」。
  */
 
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -29,8 +37,14 @@ const SECTION_NAME = 'workflow:policy'
 /** 恒早于全部 TOOL_* 段（1000+），晚于 PLAN_POLICY(500) / TEAM_POLICY(600)。 */
 const SECTION_ORDER = 700
 
-/** L1 常驻段字符预算。超出即 fail-closed（整体不注册），见 apply() 第 3 步。 */
-const MAX_L1 = 1500
+/**
+ * L1 常驻段长度的**软**阈值：超过只在日志里提醒，**不阻止注册**。
+ * 取代原来的 MAX_L1=1500 硬门禁（fail-closed），见文件头关键约束第 5 条。
+ */
+const WARN_L1 = 2000
+
+/** 单条规则正文长度上限。编译期只提醒；真正的拦截在写入端 evolve_add。 */
+const MAX_ENTRY = 60
 
 /** 骨架段与增量段之间的分隔（也是人读时的视觉分界）。 */
 const JOIN = '\n\n---\n\n'
@@ -136,12 +150,13 @@ export function apply(ctx, config) {
   //    工作流骨架就被整体挤掉 —— 模型只看到零散规则，看不到流程。改为叠加：
   //    骨架恒在，进化出来的规则追加。
   let delta = null
+  let entries = []
   try {
     const ledgerText = readText(ctx, ledgerUrl)
     const lines = ledgerText.split(/\r?\n/)
     const { b, e } = findMarkers(lines, BEGIN, END)
     if (b >= 0 && e > b) {
-      const entries = lines
+      entries = lines
         .slice(b + 1, e)
         .map(parseEntry)
         .filter(Boolean)
@@ -151,20 +166,11 @@ export function apply(ctx, config) {
     ctx.logger?.warn?.(`workflow-l1: ledger 读取失败，仅注入骨架段：${String(error?.message ?? error)}`)
   }
 
-  // ── 3. 预算门禁（fail-closed）──
-  //    超预算则整体不注册，而不是截断。理由：截断会让规则静默消失，模型不知道自己少了什么，
-  //    人也看不出来；不注册会让日志立刻暴露问题，且行为与「没有工作流」一致，便于发现与修复。
+  // ── 3. 注册常驻段（长度永不阻止注册）──
+  //    旧实现在这里做 MAX_L1=1500 硬门禁：超一点就整段不注册。已废弃（2026-10-15）——
+  //    那会把「稍微长了」升级成「整个工作流静默失效」，是最坏的失败模式。
+  //    现在：骨架 + 增量一定注册；长度只在日志里提醒（下一步）。
   const l1 = delta === null ? base : base + JOIN + delta
-  if (l1.length > MAX_L1) {
-    ctx.logger?.error?.(
-      `workflow-l1: L1 超预算 ${l1.length}/${MAX_L1} 字符，段落未注册（fail-closed）。` +
-        `骨架 ${base.length} + 增量 ${delta === null ? 0 : delta.length}。` +
-        `请精简 evolve/ledger.md（长条目搬到 evolve/lessons/）。`
-    )
-    return
-  }
-
-  // ── 4. 注册常驻段 ──
   ctx.effect(
     () =>
       sp.section({
@@ -175,7 +181,26 @@ export function apply(ctx, config) {
     'workflow-l1.section()'
   )
 
-  // ── 3. 【已移除】evolve_add 专属工具注册 ──
+  // ── 4. 软提醒（只写日志，不改变行为）──
+  //    设计意图：约束落在「单条要短」上（贪心累积 + 每条压缩），而不是「总长封顶」。
+  //    写入端的硬拦截在 dsh-evolve 的 evolve_add（正文 > MAX_ENTRY 直接拒收）。
+  if (l1.length > WARN_L1) {
+    ctx.logger?.warn?.(
+      `workflow-l1: L1 已 ${l1.length} 字符（软阈值 ${WARN_L1}，不影响注册）。` +
+        `骨架 ${base.length} + 增量 ${delta === null ? 0 : delta.length}。` +
+        `建议复查：把长条目正文搬到 evolve/lessons/，ledger 里只留 ≤${MAX_ENTRY} 字符的索引行。`
+    )
+  }
+  const longEntries = entries.filter((e) => e.text.length > MAX_ENTRY)
+  if (longEntries.length) {
+    ctx.logger?.warn?.(
+      `workflow-l1: ${longEntries.length} 条规则正文超 ${MAX_ENTRY} 字符：` +
+        longEntries.map((e) => `${e.id}(${e.text.length})`).join(', ') +
+        `。建议压短，或搬到 evolve/lessons/<id>.md 后只留索引行。`
+    )
+  }
+
+  // ── 5. 【已移除】evolve_add 专属工具注册 ──
   // 实测结论：预设插件（.mjs）里 ctx.tools.register 注册的工具不进入 agent 可见集。
   //   证据：scoped 与 global 查询均为 14 个且完全一致，scoped-only 为空；
   //   而动态插件用 harness.registerTool 注册的 preset_admin 可见。
