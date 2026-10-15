@@ -3,7 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "DSH agent preset bundle: 工作流模式 v2（由 $DSH_HOME/.agent-presets/workflow-v2/ 迁移而来）",
+  "description": "DSH agent preset bundle: 七阶段工作流（L1 常驻骨架 + 按需技能 + 可自我进化的规则账本）",
+  "license": "MIT",
+  "scripts": {
+    "test": "node tests/compiler.test.mjs && node tests/evolve-guard.test.mjs"
+  },
   "dsh": {
     "bundle": {
       "patch": "./preset.patch.yml"
