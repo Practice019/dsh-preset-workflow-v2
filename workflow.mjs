@@ -2,9 +2,11 @@
  * workflow-v2 — L1 常驻段落 + 自我进化（v2.4 进化机制）
  *
  * 职责：
- *  1. 【编译】读 evolve/ledger.md 的活跃条目 → 渲染成 L1 常驻段文本（含版本号）
- *  2. 【注册】注册为 systemPrompt 的 `workflow:policy` 段（order 700，恒早于工具段 1000+）
- *  3. 【写入】注册 evolve.add 工具：只向 ledger 追加单条（含去重），不碰 workflow.md
+ *  1. 【骨架】读 workflow.md 的 L1 区 → 这是「整个工作流」的载体
+ *     （七阶段 + 何时走哪个 + 铁律 + 资料获取方式）。必须自足。
+ *  2. 【增量】读 evolve/ledger.md 的活跃条目 → 编译成规则列表，**追加**在骨架之后（不替代）
+ *  3. 【注册】合并结果注册为 systemPrompt 的 `workflow:policy` 段（order 700，早于工具段 1000+）
+ *  4. 【门禁】合并结果超 MAX_L1 字符则整体不注册（fail-closed）
  *
  * 关键约束（违反即静默失效）：
  *  1. 段落名固定 `workflow:policy`，order=700。不用 persona 的 PERSONA_PREFIX_SECTION
@@ -26,6 +28,12 @@ const SECTION_NAME = 'workflow:policy'
 
 /** 恒早于全部 TOOL_* 段（1000+），晚于 PLAN_POLICY(500) / TEAM_POLICY(600)。 */
 const SECTION_ORDER = 700
+
+/** L1 常驻段字符预算。超出即 fail-closed（整体不注册），见 apply() 第 3 步。 */
+const MAX_L1 = 1500
+
+/** 骨架段与增量段之间的分隔（也是人读时的视觉分界）。 */
+const JOIN = '\n\n---\n\n'
 
 const BEGIN = '<!-- LEDGER:BEGIN -->'
 const END = '<!-- LEDGER:END -->'
@@ -106,8 +114,28 @@ export function apply(ctx, config) {
   const specUrl = new URL(String(config.specPath ?? './workflow.md'), import.meta.url)
   const ledgerUrl = new URL(String(config.ledgerPath ?? './evolve/ledger.md'), import.meta.url)
 
-  // ── 1. 编译 L1：优先 ledger，失败/为空则回退 workflow.md 的 L1 区 ──
-  let l1 = null
+  // ── 1. 骨架段：workflow.md 的 L1 区（必须注入）──
+  //    这是「整个工作流」的载体：七阶段 + 何时走哪个 + 六条铁律 + 资料获取与阅读方式。
+  //    它必须自足 —— 看完就知道怎么干；不知道细节时，里面有一个明确的 skill 名可以去加载。
+  //    详细资料（阶段动作、子文件清单、调研流程）不进常驻区，走 skill 按需加载。
+  let base = null
+  try {
+    const text = readText(ctx, specUrl)
+    const lines = text.split(/\r?\n/)
+    const { b, e } = findMarkers(lines, L1_BEGIN, L1_END)
+    if (b < 0 || e <= b) throw new Error('未找到独立成行的 L1 标记')
+    base = lines.slice(b + 1, e).join('\n').trim()
+    if (!base) throw new Error('L1 区为空')
+  } catch (error) {
+    ctx.logger?.error?.(`workflow-l1: workflow.md 解析失败，段落未注册：${String(error?.message ?? error)}`)
+    return
+  }
+
+  // ── 2. 增量段：ledger 编译结果（追加在骨架之后，不替代它）──
+  //    旧实现在这里做二选一（ledger 优先、workflow.md 兜底），后果是 ledger 一旦有内容，
+  //    工作流骨架就被整体挤掉 —— 模型只看到零散规则，看不到流程。改为叠加：
+  //    骨架恒在，进化出来的规则追加。
+  let delta = null
   try {
     const ledgerText = readText(ctx, ledgerUrl)
     const lines = ledgerText.split(/\r?\n/)
@@ -117,27 +145,26 @@ export function apply(ctx, config) {
         .slice(b + 1, e)
         .map(parseEntry)
         .filter(Boolean)
-      if (entries.length) l1 = compileL1(entries)
+      if (entries.length) delta = compileL1(entries)
     }
   } catch (error) {
-    ctx.logger?.warn?.(`workflow-l1: ledger 读取失败，回退 workflow.md：${String(error?.message ?? error)}`)
+    ctx.logger?.warn?.(`workflow-l1: ledger 读取失败，仅注入骨架段：${String(error?.message ?? error)}`)
   }
 
-  if (l1 === null) {
-    try {
-      const text = readText(ctx, specUrl)
-      const lines = text.split(/\r?\n/)
-      const { b, e } = findMarkers(lines, L1_BEGIN, L1_END)
-      if (b < 0 || e <= b) throw new Error('未找到独立成行的 L1 标记')
-      l1 = lines.slice(b + 1, e).join('\n').trim()
-      if (!l1) throw new Error('L1 区为空')
-    } catch (error) {
-      ctx.logger?.error?.(`workflow-l1: workflow.md 解析失败，段落未注册：${String(error?.message ?? error)}`)
-      return
-    }
+  // ── 3. 预算门禁（fail-closed）──
+  //    超预算则整体不注册，而不是截断。理由：截断会让规则静默消失，模型不知道自己少了什么，
+  //    人也看不出来；不注册会让日志立刻暴露问题，且行为与「没有工作流」一致，便于发现与修复。
+  const l1 = delta === null ? base : base + JOIN + delta
+  if (l1.length > MAX_L1) {
+    ctx.logger?.error?.(
+      `workflow-l1: L1 超预算 ${l1.length}/${MAX_L1} 字符，段落未注册（fail-closed）。` +
+        `骨架 ${base.length} + 增量 ${delta === null ? 0 : delta.length}。` +
+        `请精简 evolve/ledger.md（长条目搬到 evolve/lessons/）。`
+    )
+    return
   }
 
-  // ── 2. 注册常驻段 ──
+  // ── 4. 注册常驻段 ──
   ctx.effect(
     () =>
       sp.section({

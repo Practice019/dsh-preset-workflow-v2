@@ -4,6 +4,9 @@
 # declarative rows carried by bundle patches; nothing reads that directory
 # any more. The legacy agent.cordis.yml is kept beside this file untouched.
 #
+# 落位（2026-10-15）：本 bundle 现位于 $DSH_HOME/presets/workflow-v2/。
+# 下方 workflow-l1 行的 file:// URL 是该目录的绝对路径，移动目录时必须同步改。
+#
 # Migrated from the legacy composition with two changes:
 #  1. @deepseek-ai/dsh-workflow-worker-thread -> @deepseek-ai/dsh-workflow-ptc
 #     (the former no longer exists in 0.1.7; row id renamed to match).
@@ -81,7 +84,7 @@
             #    → 报 `workflow-l1 (./workflow.mjs): never started`。
             #    用绝对 URL 后 import.meta.url 仍指向本目录，workflow.mjs 内部的
             #    ./workflow.md 与 ./evolve/ledger.md 照旧解析到预设目录。
-            name: file:///C:/Users/21877/.dsh/.agent-presets/workflow-v2/workflow.mjs
+            name: file:///C:/Users/21877/.dsh/presets/workflow-v2/workflow.mjs
             inject:
               - systemPrompt
             config:
