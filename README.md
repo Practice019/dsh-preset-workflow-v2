@@ -37,13 +37,15 @@ workflow.md 的 L1 区（骨架，约 705 字符）
 ```
 preset.patch.yml        preset 声明（bundle patch）：persona / workflow-l1 / 工具行
 workflow.md             L1 骨架源（<!-- L1:BEGIN/END --> 之间是常驻区），其余是候选稿正文
-workflow.mjs            编译器：骨架 + 账本增量 → workflow:policy 段
-evolve/ledger.md        规则账本（唯一写入入口：evolve_add）
+workflow.mjs            编译器：compile() 纯函数 + apply()（骨架 + 账本增量 → workflow:policy 段）
+evolve/ledger.md        规则账本（唯一写入入口：evolve_add，或界面上改）
+evolve/EDIT-GUIDE.md    改规则的指南（给人看，也给 AI 看；界面上显示的就是它）
 evolve/lessons/         长条目正文（账本里只留 ≤60 字索引行）
 skills/workflow-phases/ 按需通道（L1 指向它的唯一入口）
 plugins/dsh-evolve/     evolve_add 工具（写账本的宿主插件）
+plugins/dsh-workflow-console/  「工作流注入」页签（看 + 改/删/加规则；host 半挂 HTTP 路由）
 scripts/sync-plugin.ps1 把插件同步到 DSH 真正加载的 node_modules 副本并校验哈希
-tests/                  可移植单测（编译器行为 + 写入端守卫）
+tests/                  可移植单测（编译器 / 写入端守卫 / 注入台）
 agent.cordis.yml        迁移前的旧版组合文件（保留作参考，不参与加载）
 ```
 
@@ -79,11 +81,15 @@ Set-Content $p -Value $t -NoNewline
 {
   "dependencies": {
     "dsh-preset-workflow-v2": "link:C:/Users/YOU/.dsh/presets/workflow-v2",
-    "dsh-evolve": "file:../../plugins/dsh-evolve"        // 想要 evolve_add 才需要
+    "dsh-evolve": "file:../../plugins/dsh-evolve",                  // 想要 evolve_add 才需要
+    "dsh-workflow-console": "link:C:/Users/YOU/.dsh/presets/workflow-v2/plugins/dsh-workflow-console"  // 「工作流注入」页签
   },
-  "dsh": { "profile": { "bundles": [ /* …, */ "dsh-preset-workflow-v2", "dsh-evolve" ] } }
+  "dsh": { "profile": { "bundles": [ /* …, */ "dsh-preset-workflow-v2", "dsh-evolve", "dsh-workflow-console" ] } }
 }
 ```
+
+> 用 `link:`（而不是 `file:`）可以只留一份源码：`file:` 会被 pnpm **复制**进 `node_modules`，
+> 改源码后不同步副本，运行时还是旧代码（这个坑踩过两次）。
 
 **4) 可选：让插件只有一份源码**（避免改了一处忘了另一处）
 
@@ -101,6 +107,23 @@ pwsh -File "$HOME\.dsh\presets\workflow-v2\scripts\sync-plugin.ps1"
 | 系统提示里搜 `WF-v2.4` | 出现 `[WF-v2.4 \| compiled E0xx \| N 条活跃]` + 骨架（七阶段 / 铁律） |
 | 让模型加载 `workflow-phases` 技能 | 能返回「七阶段工作流 · 阶段详解」正文 |
 | 让模型 `evolve_add` 一段 >60 字符的规则 | `{"ok":false,"action":"rejected-too-long"}` |
+
+## 看不见的那部分，怎么看
+
+常驻段是注入到**系统提示**里的，对话界面看不见它。所以本仓库带一个页签：
+
+**会话顶部视图条 → 「工作流注入」**（和 对话 / 轨迹 / 上下文 并列）
+
+它显示编译头、总字符数、骨架全文、每条规则的 `id/scope/命中条件/正文/长度`，并且可以：
+
+- 直接**改 / 删 / 加**单条规则（只动单行、原子写、写坏标记会被拒绝）
+- 点「**交给 AI 改**」复制一段带文件路径、当前行、硬约束与目标占位的指令，粘给 AI 即可
+- 读 `evolve/EDIT-GUIDE.md` —— 人和 AI 看的是同一份指南，不另抄一份
+
+页面数据走插件自己的同源 HTTP 路由（`/workflow-console/state` / `/rule`），
+**编译口径复用 `workflow.mjs` 的 `compile()`**，所以界面上的长度与编译头永远等于真实注入。
+
+> ⚠️ 界面上改的是**源文件**；常驻段在**会话挂载时**编译 → **开新会话**（或重启 dsh）才生效。
 
 ## 长度策略（本仓库的核心设计）
 
@@ -124,6 +147,9 @@ npm test
   **规格解析失败必须不注册**（fail-closed 守卫）、账本标记缺失只注入骨架。
 - `tests/evolve-guard.test.mjs` —— 假 fs 跑真插件：超长拒收且不落盘、行格式与 trim、
   空值拒收、重复走 `hits++`；**若本机存在 `node_modules` 副本也一起测**（副本红 = 没同步）。
+- `tests/workflow-console.test.mjs` —— 假 ctx/假 req-res 跑真路由：注册、只读状态、三道同源闸、
+  单条增改删（元数据保留）、超长与非法 scope 拒绝、标记损坏拒写且文件不变；
+  再以桩 `window` + 最小 React 跑 client 半：工厂形状与 `conversation.view` 页签注册。
 
 ## 已知约束与设计取舍
 

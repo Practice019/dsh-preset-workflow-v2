@@ -1,0 +1,12 @@
+# dsh-workflow-console bundle patch
+#
+# 只做两件事：
+#  1) 把本包的主入口作为 host 半加载（读工作流预设、挂 /workflow-console/* 路由）；
+#  2) 由 package.json 的 dsh.client 声明，让 web 端把 ./client.js 作为浏览器半加载
+#     （在会话顶部视图条上注册一个「工作流注入」页签）。
+#
+# 本插件**不注入任何提示词**：它只看、只改 workflow-v2 的源文件（workflow.md / evolve/ledger.md），
+# 真正的注入由预设的 workflow-l1 行完成。
+- insert:
+    - id: dsh-workflow-console
+      name: dsh-workflow-console

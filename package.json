@@ -6,7 +6,7 @@
   "description": "DSH agent preset bundle: 七阶段工作流（L1 常驻骨架 + 按需技能 + 可自我进化的规则账本）",
   "license": "MIT",
   "scripts": {
-    "test": "node tests/compiler.test.mjs && node tests/evolve-guard.test.mjs"
+    "test": "node tests/compiler.test.mjs && node tests/evolve-guard.test.mjs && node tests/workflow-console.test.mjs"
   },
   "dsh": {
     "bundle": {

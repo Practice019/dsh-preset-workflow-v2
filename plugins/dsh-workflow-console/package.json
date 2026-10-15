@@ -1,0 +1,32 @@
+{
+  "name": "dsh-workflow-console",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "工作流注入台：查看 workflow-v2 预设往提示词里注入的内容（L1 常驻段 + 规则账本），并可直接改/删/加规则",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "check": "node --check lib/index.js && node --check client.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "license": "MIT"
+}

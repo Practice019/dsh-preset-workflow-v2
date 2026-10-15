@@ -26,7 +26,7 @@
  *     代价：常驻段会随条目线性增长，人若不定期复查会稀释注意力——所以保留「软提醒 + git 可回滚」。
  */
 
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'workflow-l1'
@@ -118,6 +118,68 @@ function compileL1(entries) {
   return `${header}\n\n**工作流规则（来自 ledger，共 ${entries.length} 条）**\n\n${body}`
 }
 
+/**
+ * 纯编译：骨架（workflow.md 的 L1 区）+ 增量（ledger 活跃条目）→「本会话将注入的常驻段」。
+ *
+ * **无副作用**：不注册段落、不写盘、不打日志。之所以抽出来，是为了让
+ * `plugins/dsh-workflow-console`（查看器）与这里的真实注入**共用同一份口径**——
+ * 否则查看器迟早会和实际注入的长度/条目/编译头漂移，那它就失去意义了。
+ *
+ * @param {{specPath?: string, ledgerPath?: string}} [options] 覆盖源文件位置（URL 或路径）
+ * @returns {{ok: boolean, error?: string, warnings: string[], base: string,
+ *   entries: Array<{id:string,scope:string,when:string,text:string,index:number,length:number}>,
+ *   delta: string|null, l1: string, chars: number, skeletonChars: number, deltaChars: number}}
+ */
+export function compile(options = {}) {
+  const warnings = []
+  const specUrl = new URL(String(options.specPath ?? './workflow.md'), import.meta.url)
+  const ledgerUrl = new URL(String(options.ledgerPath ?? './evolve/ledger.md'), import.meta.url)
+  const empty = { warnings, base: '', entries: [], delta: null, l1: '', chars: 0, skeletonChars: 0, deltaChars: 0 }
+
+  // ── 1. 骨架段：workflow.md 的 L1 区 ──
+  let base
+  try {
+    const lines = readFileSync(specUrl, 'utf8').split(/\r?\n/)
+    const { b, e } = findMarkers(lines, L1_BEGIN, L1_END)
+    if (b < 0 || e <= b) throw new Error('未找到独立成行的 L1 标记')
+    base = lines.slice(b + 1, e).join('\n').trim()
+    if (!base) throw new Error('L1 区为空')
+  } catch (error) {
+    return { ...empty, ok: false, error: String(error?.message ?? error) }
+  }
+
+  // ── 2. 增量段：ledger 编译结果（追加在骨架之后，不替代它）──
+  //    旧实现是二选一（ledger 优先、workflow.md 兜底），后果是账本一有内容，
+  //    骨架就被整体挤掉 —— 模型只看到零散规则，看不到流程。这里是叠加：骨架恒在。
+  let entries = []
+  let delta = null
+  try {
+    const lines = readFileSync(ledgerUrl, 'utf8').split(/\r?\n/)
+    const { b, e } = findMarkers(lines, BEGIN, END)
+    if (b < 0 || e <= b) {
+      warnings.push(`ledger 标记缺失（${BEGIN} / ${END}），仅注入骨架段`)
+    } else {
+      entries = lines.slice(b + 1, e).map(parseEntry).filter(Boolean)
+      if (entries.length) delta = compileL1(entries)
+    }
+  } catch (error) {
+    warnings.push(`ledger 读取失败，仅注入骨架段：${String(error?.message ?? error)}`)
+  }
+
+  const l1 = delta === null ? base : base + JOIN + delta
+  return {
+    ok: true,
+    warnings,
+    base,
+    entries: entries.map((e, i) => ({ ...e, index: i + 1, length: e.text.length })),
+    delta,
+    l1,
+    chars: l1.length,
+    skeletonChars: base.length,
+    deltaChars: delta === null ? 0 : delta.length,
+  }
+}
+
 export function apply(ctx, config) {
   const sp = ctx.systemPrompt
   if (sp === undefined) {
@@ -125,58 +187,23 @@ export function apply(ctx, config) {
     return
   }
 
-  const specUrl = new URL(String(config.specPath ?? './workflow.md'), import.meta.url)
-  const ledgerUrl = new URL(String(config.ledgerPath ?? './evolve/ledger.md'), import.meta.url)
-
-  // ── 1. 骨架段：workflow.md 的 L1 区（必须注入）──
-  //    这是「整个工作流」的载体：七阶段 + 何时走哪个 + 六条铁律 + 资料获取与阅读方式。
-  //    它必须自足 —— 看完就知道怎么干；不知道细节时，里面有一个明确的 skill 名可以去加载。
-  //    详细资料（阶段动作、子文件清单、调研流程）不进常驻区，走 skill 按需加载。
-  let base = null
-  try {
-    const text = readText(ctx, specUrl)
-    const lines = text.split(/\r?\n/)
-    const { b, e } = findMarkers(lines, L1_BEGIN, L1_END)
-    if (b < 0 || e <= b) throw new Error('未找到独立成行的 L1 标记')
-    base = lines.slice(b + 1, e).join('\n').trim()
-    if (!base) throw new Error('L1 区为空')
-  } catch (error) {
-    ctx.logger?.error?.(`workflow-l1: workflow.md 解析失败，段落未注册：${String(error?.message ?? error)}`)
+  const r = compile({ specPath: config?.specPath, ledgerPath: config?.ledgerPath })
+  if (!r.ok) {
+    ctx.logger?.error?.(`workflow-l1: workflow.md 解析失败，段落未注册：${r.error}`)
     return
   }
-
-  // ── 2. 增量段：ledger 编译结果（追加在骨架之后，不替代它）──
-  //    旧实现在这里做二选一（ledger 优先、workflow.md 兜底），后果是 ledger 一旦有内容，
-  //    工作流骨架就被整体挤掉 —— 模型只看到零散规则，看不到流程。改为叠加：
-  //    骨架恒在，进化出来的规则追加。
-  let delta = null
-  let entries = []
-  try {
-    const ledgerText = readText(ctx, ledgerUrl)
-    const lines = ledgerText.split(/\r?\n/)
-    const { b, e } = findMarkers(lines, BEGIN, END)
-    if (b >= 0 && e > b) {
-      entries = lines
-        .slice(b + 1, e)
-        .map(parseEntry)
-        .filter(Boolean)
-      if (entries.length) delta = compileL1(entries)
-    }
-  } catch (error) {
-    ctx.logger?.warn?.(`workflow-l1: ledger 读取失败，仅注入骨架段：${String(error?.message ?? error)}`)
-  }
+  for (const w of r.warnings) ctx.logger?.warn?.(`workflow-l1: ${w}`)
 
   // ── 3. 注册常驻段（长度永不阻止注册）──
   //    旧实现在这里做 MAX_L1=1500 硬门禁：超一点就整段不注册。已废弃（2026-10-15）——
   //    那会把「稍微长了」升级成「整个工作流静默失效」，是最坏的失败模式。
   //    现在：骨架 + 增量一定注册；长度只在日志里提醒（下一步）。
-  const l1 = delta === null ? base : base + JOIN + delta
   ctx.effect(
     () =>
       sp.section({
         name: SECTION_NAME,
         order: SECTION_ORDER,
-        text: l1,
+        text: r.l1,
       }),
     'workflow-l1.section()'
   )
@@ -184,18 +211,18 @@ export function apply(ctx, config) {
   // ── 4. 软提醒（只写日志，不改变行为）──
   //    设计意图：约束落在「单条要短」上（贪心累积 + 每条压缩），而不是「总长封顶」。
   //    写入端的硬拦截在 dsh-evolve 的 evolve_add（正文 > MAX_ENTRY 直接拒收）。
-  if (l1.length > WARN_L1) {
+  if (r.chars > WARN_L1) {
     ctx.logger?.warn?.(
-      `workflow-l1: L1 已 ${l1.length} 字符（软阈值 ${WARN_L1}，不影响注册）。` +
-        `骨架 ${base.length} + 增量 ${delta === null ? 0 : delta.length}。` +
+      `workflow-l1: L1 已 ${r.chars} 字符（软阈值 ${WARN_L1}，不影响注册）。` +
+        `骨架 ${r.skeletonChars} + 增量 ${r.deltaChars}。` +
         `建议复查：把长条目正文搬到 evolve/lessons/，ledger 里只留 ≤${MAX_ENTRY} 字符的索引行。`
     )
   }
-  const longEntries = entries.filter((e) => e.text.length > MAX_ENTRY)
+  const longEntries = r.entries.filter((e) => e.length > MAX_ENTRY)
   if (longEntries.length) {
     ctx.logger?.warn?.(
       `workflow-l1: ${longEntries.length} 条规则正文超 ${MAX_ENTRY} 字符：` +
-        longEntries.map((e) => `${e.id}(${e.text.length})`).join(', ') +
+        longEntries.map((e) => `${e.id}(${e.length})`).join(', ') +
         `。建议压短，或搬到 evolve/lessons/<id>.md 后只留索引行。`
     )
   }
@@ -218,12 +245,7 @@ export function apply(ctx, config) {
 /**
  * 读文本。node:fs 是内置模块（不是裸包），ESM 下可直接 import。
  * 注意：预设目录没有 node_modules，任何 npm 包都不能 import。
+ *
+ * 另外：`compile()` 被「查看器」插件（plugins/dsh-workflow-console）按绝对 file: URL
+ * 动态 import 复用。所以本模块顶层不能有任何副作用（注册/写盘/日志都不行）。
  */
-function readText(_ctx, url) {
-  return readFileSync(url, 'utf8')
-}
-
-/** 写文本。 */
-function writeText(_ctx, url, text) {
-  return writeFileSync(url, text, 'utf8')
-}
